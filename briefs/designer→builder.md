@@ -11,7 +11,7 @@
 
 | ID | 特性 | 阶段 | Reach | Impact | Confidence | Effort | RICE | 优先级 |
 |----|------|:----:|:----:|:------:|:---------:|:-----:|:----:|:------:|
-| F001 | Orchestrator 状态机（Agent 路由 + 条件跳转） | P0 | 5 | 5 | 99% | 3 | 8.25 | **P0** |
+| F001 | Python Orchestrator（解析 → 调 Agent → 输出，直线流程，~30行） | P0 | 5 | 5 | 99% | 3 | 8.25 | **P0** |
 | F002 | Scout Agent 实现（搜索 + 读网页 + 写报告） | P0 | 5 | 5 | 99% | 3 | 8.25 | **P0** |
 | F003 | CLI 入口（`agent-pipeline run <requirement>`） | P0 | 4 | 4 | 95% | 5 | 3.04 | **P0** |
 | F011 | Agent 间上下文传递 + 消息缓存 | P1 | 5 | 5 | 95% | 3 | 7.92 | **P1** |
@@ -35,7 +35,7 @@
 ### 1.3 Phase 1 MVP 精确范围
 
 **In Scope（必须实现）**：
-1. **Orchestrator 状态机**：接收用户需求 → 解析提取项目信息 → 调用预索引门控 RAG（至少 index.md 匹配）→ 创建 Scout Agent → 等待完成 → 输出结果
+1. **Orchestrator**：Python 函数（~30行）接收用户需求 → 解析提取项目信息 → 调用预索引门控 RAG（index.md 关键词匹配）→ 创建 Scout ReAct Agent → 等待完成 → 写 state.json → 输出结果
 2. **Scout Agent**：用 `create_react_agent` 创建，绑定 `search_web` + `read_url` + `write_report` + `query_knowledge` 工具
 3. **CLI 入口**：`agent-pipeline run "需求"`，支持 `--resume` 断点恢复
 4. **状态持久化**：`state.json`（JSON 文件），每次状态变更后写入
@@ -57,8 +57,8 @@
 
 ```
                               ┌──────────────────────┐
-                              │   User / CLI / Web    │
-                              │  agent-pipeline run   │
+                              │   User / CLI           │
+                              │  agent-pipeline run    │
                               └──────────┬───────────┘
                                          │ 需求文本
                                          ▼
@@ -66,44 +66,30 @@
 │                      Agent Pipeline Core (Python)                   │
 │                                                                      │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                  Orchestrator (StateGraph)                    │   │
+│  │          Orchestrator（Python 函数，~30 行，无 LangGraph）     │   │
 │  │                                                              │   │
-│  │  START → parse_requirement → execute_scout → check_phase →   │   │
-│  │  → finalize_pipeline → END                                   │   │
+│  │  parse_requirement → match_index_knowledge →                 │   │
+│  │  create_scout_agent() → agent.invoke() → save_state()        │   │
 │  │                                                              │   │
-│  │  Shared State (PipelineState):                               │   │
-│  │  - requirement, project_name, current_agent                  │   │
-│  │  - agent_outputs: {scout: {...}, designer: {...}, ...}       │   │
-│  │  - status, errors, retry_count                               │   │
-│  │  - knowledge_sources (预索引 RAG 命中结果)                    │   │
+│  │  Phase 1: 直线流程，无分支。Phase 2+ 升级为 StateGraph。      │   │
 │  └──────────────────────────┬───────────────────────────────────┘   │
-│                             │ 分派 Agent                             │
-│                             ▼                                        │
+│                             │ 调用                                  │
+│                             ▼                                       │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │            Inner ReAct Agents (create_react_agent)            │   │
+│  │       Scout ReAct Agent (create_react_agent)                 │   │
 │  │                                                              │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐     │   │
-│  │  │Scout     │  │Designer  │  │Builder   │  │Tester    │     │   │
-│  │  │search_web│  │read_file │  │read_design│  │read_code │     │   │
-│  │  │read_url  │  │search_doc│  │write_code │  │run_tests │     │   │
-│  │  │write_rpt │  │write_doc │  │run_lint   │  │write_fix │     │   │
-│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘     │   │
-│  │       │             │             │             │           │   │
-│  │  ┌────▼─────┐       │             │             │           │   │
-│  │  │Seller    │◄──────┴─────────────┴─────────────┘           │   │
-│  │  │read_all  │                                               │   │
-│  │  │write_rdme│                                               │   │
-│  │  │gen_chnlg │                                               │   │
-│  │  └──────────┘                                               │   │
+│  │  System Prompt: agents/templates/scout.template.md          │   │
+│  │  Tools: search_web, read_url, write_report, query_knowledge │   │
+│  │  ReAct: Think → Tool Call → Observe → ... → Final          │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                             │                                       │
 │                             ▼                                       │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                 Pre-index Gated RAG                          │   │
+│  │       预索引门控 RAG（Phase 1：index.md 子串匹配）             │   │
 │  │                                                              │   │
 │  │  requirement → index.md keyword match                        │   │
 │  │    ├─ HIT  → load wiki pages directly                        │   │
-│  │    └─ MISS → pgvector semantic search → Top-5 chunks         │   │
+│  │    └─ MISS → "knowledge_source: none"                        │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────────────────────────────────────┘
                              │
@@ -114,12 +100,8 @@
 │  {pipeline_dir}/                                                    │
 │  ├── requirement.txt           # 原始需求                          │
 │  ├── project.json              # 元数据                            │
-│  ├── scout/report.md           # 调研报告                          │
-│  ├── designer/                 # 设计文档                          │
-│  ├── builder/src/              # 源代码                            │
-│  ├── tester/test-results.md    # 测试结果                          │
-│  ├── seller/README.md          # 用户文档                          │
-│  └── state.json                # 流水线状态（断点恢复用）            │
+│  ├── state.json                # 流水线状态（断点恢复）             │
+│  └── scout/report.md           # 调研报告                          │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -128,7 +110,8 @@
 | 组件 | 选型 | 理由 |
 |------|------|------|
 | **语言** | Python 3.12+ | 项目既定。LangGraph 官方语言，类型提示增强 |
-| **编排层** | LangGraph ≥0.2.0 | 跨公司共同语言。StateGraph 原生支持多 Agent 路由、条件边、Checkpoint 持久化 |
+| **编排层 (Phase 1)** | Python 函数 | 直线流程无需状态机。~30行。Phase 2+ 升级为 LangGraph StateGraph |
+| **编排层 (Phase 2+)** | LangGraph ≥0.2.0 | 条件路由（Tester→Builder回退）、Checkpoint持久化。Phase 1 不引入 |
 | **Agent 内层** | `langgraph.prebuilt.create_react_agent` | 官方 ReAct 实现，内置 ToolNode + 消息循环。减少自维护 Bug |
 | **LLM SDK** | `anthropic` ≥0.40.0 | 项目既定。Claude tool use 稳定性行业领先 |
 | **CLI 框架** | `click` ≥8.1 | Python 生态最成熟 CLI 库。参数校验自动完成 |
@@ -155,82 +138,98 @@ beautifulsoup4>=4.12.0 # 用于 HTML 解析
 
 ## 第三章：组件规格
 
-### 3.1 Orchestrator 状态机定义
+### 3.1 Orchestrator 实现（Phase 1：Python 函数）
 
 ```python
 # === src/lib/orchestrator.py ===
 
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint import MemorySaver
-from typing import TypedDict, Optional, Literal
+from dataclasses import dataclass, field
+from typing import Optional, Literal
+import json, os, uuid
+from datetime import datetime, timezone
 
-class AgentOutput(TypedDict):
-    status: Literal["pending", "running", "completed", "failed"]
-    started_at: Optional[str]
-    completed_at: Optional[str]
-    output_path: Optional[str]
-    summary: str
-    raw_output: str
-    error: Optional[str]
-    retry_count: int
-    artifacts: list[str]
+@dataclass
+class AgentOutput:
+    status: Literal["pending", "running", "completed", "failed"] = "pending"
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    output_path: Optional[str] = None
+    summary: str = ""
+    raw_output: str = ""
+    error: Optional[str] = None
+    retry_count: int = 0
+    artifacts: list[str] = field(default_factory=list)
 
-class PipelineState(TypedDict):
+@dataclass
+class PipelineState:
     requirement: str
-    project_name: str
-    project_slug: str
-    current_agent: str
-    phase: Literal["scout", "designer", "builder", "tester", "seller"]
-    next_agent: Optional[str]
-    agent_outputs: dict[str, AgentOutput]
-    status: Literal["idle", "running", "paused", "completed", "failed"]
-    errors: list[str]
-    warnings: list[str]
-    context_dir: str
-    messages: list
-    knowledge_hit: bool
-    knowledge_sources: list[str]
-    pipeline_id: str
-    created_at: str
-    updated_at: str
+    project_name: str = ""
+    project_slug: str = ""
+    current_agent: str = "scout"
+    phase: str = "scout"
+    agent_outputs: dict = field(default_factory=dict)
+    status: str = "idle"
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    context_dir: str = ""
+    knowledge_hit: bool = False
+    knowledge_sources: list = field(default_factory=list)
+    pipeline_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
 
-def create_orchestrator():
-    """创建 StateGraph 并编译。返回 CompiledGraph。"""
-    builder = StateGraph(PipelineState)
-
-    # 注册节点
-    builder.add_node("parse_requirement", parse_requirement_node)
-    builder.add_node("execute_scout", execute_scout_node)
-    builder.add_node("execute_designer", execute_designer_node)
-    builder.add_node("execute_builder", execute_builder_node)
-    builder.add_node("execute_tester", execute_tester_node)
-    builder.add_node("execute_seller", execute_seller_node)
-    builder.add_node("check_phase_complete", check_phase_complete_node)
-    builder.add_node("finalize_pipeline", finalize_node)
-
-    # 连接边
-    builder.add_edge(START, "parse_requirement")
-    builder.add_edge("parse_requirement", "execute_scout")
-
-    # Phase 1: 单 Agent 闭环
-    builder.add_edge("execute_scout", "check_phase_complete")
-    builder.add_conditional_edges(
-        "check_phase_complete",
-        should_continue,
-        {"finalize": "finalize_pipeline", "continue": END}
+def run_pipeline(requirement: str) -> PipelineState:
+    """Phase 1 Orchestrator：直线流程，~30 行，无 LangGraph 外层"""
+    
+    state = PipelineState(requirement=requirement)
+    state.pipeline_id = f"pl_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    state.project_name = extract_project_name(requirement)
+    state.project_slug = slugify(state.project_name)
+    state.context_dir = f"output/{state.project_slug}"
+    state.status = "running"
+    state.created_at = datetime.now(timezone.utc).isoformat()
+    
+    os.makedirs(state.context_dir, exist_ok=True)
+    
+    # Step 1: 预索引门控 RAG（index.md 子串匹配）
+    state = match_index_knowledge(state, index_path="wiki/index.md")
+    
+    # Step 2: 创建并运行 Scout Agent
+    agent = create_scout_agent()
+    
+    state.agent_outputs["scout"] = AgentOutput(
+        status="running",
+        started_at=datetime.now(timezone.utc).isoformat()
     )
-    builder.add_edge("finalize_pipeline", END)
-
-    return builder.compile(checkpointer=MemorySaver())
-
-def should_continue(state: PipelineState) -> str:
-    """检查是否继续到下一阶段"""
-    if state["phase"] == "scout" or state["status"] == "completed":
-        return "finalize"
-    return "continue"
+    
+    try:
+        result = agent.invoke({
+            "messages": [{
+                "role": "user",
+                "content": f"需求：{state.requirement}\n\n请进行市场调研，输出报告到 {state.context_dir}/scout/report.md"
+            }]
+        })
+        
+        state.agent_outputs["scout"].status = "completed"
+        state.agent_outputs["scout"].completed_at = datetime.now(timezone.utc).isoformat()
+        state.agent_outputs["scout"].output_path = f"{state.context_dir}/scout/report.md"
+        state.agent_outputs["scout"].summary = "调研报告已生成"
+        state.agent_outputs["scout"].raw_output = result["messages"][-1].content
+        
+    except Exception as e:
+        state.agent_outputs["scout"].status = "failed"
+        state.agent_outputs["scout"].error = str(e)
+        state.status = "failed"
+        state.errors.append(str(e))
+    
+    # Step 3: 持久化状态
+    state.status = "completed" if state.agent_outputs["scout"].status == "completed" else "failed"
+    save_state(state)
+    
+    return state
 ```
 
-### 3.2 Agent 节点实现模式
+### 3.2 Agent 实现模式（Phase 1：独立函数，Phase 2+ 包装为 StateGraph 节点）
 
 ```python
 # === src/lib/agents/scout_agent.py ===
@@ -280,8 +279,9 @@ def create_scout_agent():
 
     return create_react_agent(llm, tools, prompt=system_prompt)
 
-def execute_scout_node(state: PipelineState) -> PipelineState:
-    """Scout Agent 执行节点（Orchestrator 中的节点函数）"""
+def execute_scout_phase2(state: PipelineState) -> PipelineState:
+    """Phase 2+ Scout 执行节点（LangGraph StateGraph 节点函数）。
+    Phase 1 直接在 orchestrator 中调用 create_scout_agent().invoke()，不用这个包装器。"""
     agent = create_scout_agent()
     
     # 准备输入
