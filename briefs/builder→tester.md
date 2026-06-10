@@ -329,4 +329,156 @@ output/{slug}/
 
 ---
 
-*Phase 1 完成于 2026-06-10。Phase 2 升级于 2026-06-10。Tester 可据此编写 Phase 2 测试用例。*
+## 八、Phase 3 变更详情
+
+> Web UI + SSE 实时推送 + pipeline.log + Eclipse 熄灯
+
+### 8.1 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/agent_pipeline/log_handler.py` | PipelineLogHandler（BaseCallbackHandler），双写 pipeline.log + asyncio.Queue |
+| `src/agent_pipeline/web/__init__.py` | Web 包入口 |
+| `src/agent_pipeline/web/server.py` | FastAPI 服务（5 端点：/run, /stream/{id}, /shutdown, /api/pipelines, /） |
+| `src/agent_pipeline/web/static/index.html` | Web UI 首页（暗色主题 dashboard） |
+| `src/agent_pipeline/web/static/app.js` | SSE 消费者前端逻辑 |
+| `src/agent_pipeline/web/static/styles.css` | 暗色主题 CSS（JetBrains Mono + dashboard 风格） |
+
+### 8.2 修改文件
+
+| 文件 | 变更 |
+|------|------|
+| `src/agent_pipeline/orchestrator.py` | 新增全局 `_pipeline_handler` + 7 节点 handler 注入 + `_invoke_agent` 支持 callbacks |
+| `src/agent_pipeline/cli/main.py` | 新增 `serve` 命令（`agent-pipeline serve --port 3456`） |
+| `pyproject.toml` | 添加 fastapi, uvicorn, sse-starlette 依赖 |
+
+### 8.3 架构说明
+
+```
+agent-pipeline serve
+    │
+    ▼
+FastAPI (同进程)
+    │
+    ├─ POST /run             启动五 Agent 流水线
+    ├─ GET  /stream/{id}     SSE 事件推送
+    ├─ POST /shutdown        优雅退出（Eclipse）
+    ├─ GET  /api/pipelines   历史流水线列表
+    ├─ GET  /                静态页面 (index.html)
+    └─ GET  /static/*        静态资源
+```
+
+事件源：PipelineLogHandler 双写 pipeline.log（持久化）+ asyncio.Queue（SSE 实时推）
+
+### 8.4 Phase 3 偏差记录
+
+#### 偏差 P3-B01：asyncio.Queue 从线程 put_nowait
+
+**设计规格**：使用 `asyncio.Queue` 作为 SSE 事件中转。
+
+**实现**：`PipelineLogHandler._emit()` 从后台线程调用 `queue.put_nowait(event)`。`asyncio.Queue.put_nowait` 在 CPython 中内部使用 deque + Future.wakeup，从工作线程调用是安全的（try/except 保护）。
+
+**影响**：低风险。所有 `_emit` 调用由 try/except 包裹，队列满或事件循环异常时静默忽略。
+
+#### 偏差 P3-B02：pipeline.log 路径延迟绑定
+
+**设计规格**：handler 创建时指定 pipeline.log 路径。
+
+**实现**：handler 在创建时使用临时路径（`output/_logs/{pipeline_id}/pipeline.log`），在 `parse_node` 执行后通过 `handler.set_log_path()` 更新为真实项目输出目录（`output/{project_slug}/pipeline.log`）。
+
+**原因**：parse_node 运行时才确定 project_slug 和 context_dir，handler 在 create 时无法知道最终路径。
+
+#### 偏差 P3-B03：前端使用原生 JavaScript 而非框架
+
+**设计规格**：Web UI 使用 HTML + CSS + JS 三文件结构。
+
+**实现**：使用原生 JavaScript (ES Modules) 实现 SSE 消费、DOM 操作和事件驱动 UI 更新。无 React/Vue 依赖。
+
+**原因**：减少依赖，与 agent-team-dashboard 风格一致。功能轻量，框架带来的复杂度超过收益。
+
+#### 偏差 P3-B04：SSE keepalive 使用 5 秒超时
+
+**设计规格**：SSE 持续推送事件直到 pipeline_end。
+
+**实现**：使用 `asyncio.wait_for(queue.get(), timeout=5.0)` 实现 5 秒心跳。队列无事件时每 5 秒发送 `: keepalive` 注释保持连接。
+
+**原因**：防止代理/负载均衡器断开长时间无数据的 SSE 连接。
+
+#### 偏差 P3-B05：前端从 /api/pipelines 加载历史
+
+**设计规格**：无此端点要求（设计规格中列出但未详述）。
+
+**实现**：新增 `GET /api/pipelines` 端点返回最近 20 条流水线列表（调用 state.list_pipelines）。
+
+**原因**：为后续前端"历史流水线"功能预留。当前版本仅后端可用。
+
+### 8.5 Phase 3 事件协议
+
+```json
+{"time":"22:16:01","agent":"scout","event":"agent_start"}
+{"time":"22:16:05","agent":"scout","event":"tool_start","tool":"search_web","input":"CLI TODO"}
+{"time":"22:16:08","agent":"scout","event":"tool_end","tool":"search_web"}
+{"time":"22:18:22","agent":"scout","event":"agent_end","status":"completed","duration_s":141}
+{"time":"22:28:27","agent":null,"event":"pipeline_end","status":"completed"}
+```
+
+### 8.6 Tester 测试要点（Phase 3）
+
+#### 模块导入与编译
+
+| ID | 验证内容 |
+|----|---------|
+| P3-T1 | `agent_pipeline.log_handler.PipelineLogHandler` 可导入 |
+| P3-T2 | `agent_pipeline.web.server.app` FastAPI 实例创建成功 |
+| P3-T3 | `agent-pipeline serve --help` 显示 serve 命令帮助 |
+
+#### Web 服务功能
+
+| ID | 场景 | 预期 |
+|----|------|------|
+| P3-T4 | GET / 返回 200 | 返回 index.html（text/html） |
+| P3-T5 | POST /run 空需求 | 返回 400 `{"error":"需求不能为空"}` |
+| P3-T6 | POST /run 有效需求 | 返回 200 `{"pipeline_id":"pl_..."}` |
+| P3-T7 | POST /run 并发请求 | 第二次返回 429 "已有流水线在运行" |
+| P3-T8 | GET /stream/{id} 不存在 | 返回 404 |
+| P3-T9 | GET /api/pipelines | 返回 JSON 数组 |
+| P3-T10 | POST /shutdown | 返回 `{"status":"eclipsed"}`，进程退出 |
+
+#### CLI serve 命令
+
+| ID | 场景 | 预期 |
+|----|------|------|
+| P3-T11 | `agent-pipeline serve --no-open --port 3456` | 服务启动在 localhost:3456 |
+| P3-T12 | `agent-pipeline serve --help` | 显示 serve 命令帮助 |
+
+#### pipeline.log
+
+| ID | 场景 | 预期 |
+|----|------|------|
+| P3-T13 | pipeline 运行后检查日志 | `output/{slug}/pipeline.log` 存在且非空 |
+| P3-T14 | 日志格式验证 | 每行是 JSON，包含 time/agent/event 字段 |
+| P3-T15 | pipeline_end 事件 | 日志最后一行是 pipeline_end 事件 |
+
+### 8.7 操作日志
+
+```bash
+# Phase 3 全流程测试
+agent-pipeline serve --no-open --port 3456 &
+curl -X POST http://localhost:3456/run \
+  -H "Content-Type: application/json" \
+  -d '{"requirement":"设计一个 CLI TODO 应用"}'
+# → {"pipeline_id":"pl_20260610_143022_abc123"}
+
+# SSE 测试（新终端）
+curl -N http://localhost:3456/stream/pl_20260610_143022_abc123
+# → data: {"time":"22:16:01","agent":"scout","event":"agent_start"}
+# → data: ...
+
+# Eclipse 测试
+curl -X POST http://localhost:3456/shutdown
+# → {"status":"eclipsed"}（进程退出）
+```
+
+---
+
+*Phase 1 完成于 2026-06-10。Phase 2 升级于 2026-06-10。Phase 3 完成于 2026-06-10。Tester 可据此编写测试用例。*

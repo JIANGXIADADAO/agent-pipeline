@@ -30,6 +30,25 @@ from langgraph.checkpoint.memory import MemorySaver
 from .models import PipelineState, AgentOutput
 from .state import save_state
 from .knowledge import match_index_knowledge, build_knowledge_context
+from .log_handler import now_iso
+
+
+# ============================================================
+# PipelineLogHandler 全局引用（供 Web SSE 模式注入）
+# ============================================================
+
+_pipeline_handler = None
+
+
+def set_pipeline_handler(handler):
+    """设置流水线日志处理器（Web 模式在 create_orchestrator 前调用）。"""
+    global _pipeline_handler
+    _pipeline_handler = handler
+
+
+def _get_handler():
+    """获取当前流水线日志处理器（CLI 模式返回 None）。"""
+    return _pipeline_handler
 
 
 # ============================================================
@@ -103,15 +122,21 @@ def slugify(name: str) -> str:
 # 工具函数：Agent 调用
 # ============================================================
 
-def _invoke_agent(agent, user_message: str, timeout_seconds: int = 300):
+def _invoke_agent(agent, user_message: str, timeout_seconds: int = 300, callbacks=None):
     """调用 ReAct Agent 并返回结果消息。"""
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
-    with ThreadPoolExecutor() as executor:
-        future = executor.submit(
-            agent.invoke,
+    def _do_invoke():
+        kwargs = {}
+        if callbacks:
+            kwargs["config"] = {"callbacks": callbacks}
+        return agent.invoke(
             {"messages": [{"role": "user", "content": user_message}]},
+            **kwargs,
         )
+
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(_do_invoke)
         try:
             result = future.result(timeout=timeout_seconds)
         except FutureTimeoutError:
@@ -135,6 +160,13 @@ def _invoke_agent(agent, user_message: str, timeout_seconds: int = 300):
 
 def parse_node(state: PipelineStateDict) -> dict:
     """解析需求 + 预索引门控 RAG。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "parse"
+        handler._emit({"time": now_iso(), "agent": "parse", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     requirement = state.get("requirement", "")
 
@@ -143,6 +175,11 @@ def parse_node(state: PipelineStateDict) -> dict:
     context_dir = f"output/{project_slug}"
 
     os.makedirs(context_dir, exist_ok=True)
+
+    # 更新 handler 日志路径到项目输出目录
+    if handler:
+        log_path = os.path.join(context_dir, "pipeline.log")
+        handler.set_log_path(log_path)
 
     # 写入原始需求
     req_path = os.path.join(context_dir, "requirement.txt")
@@ -178,11 +215,27 @@ def parse_node(state: PipelineStateDict) -> dict:
         ]
 
     save_state(_dict_to_pipeline_state({**state, **updates}))
+
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "parse",
+            "event": "agent_end",
+            "duration_s": int(time.time() - t0),
+        })
+
     return updates
 
 
 def scout_node(state: PipelineStateDict) -> dict:
     """Scout Agent — 市场调研。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "scout"
+        handler._emit({"time": now_iso(), "agent": "scout", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     context_dir = state["context_dir"]
 
@@ -219,7 +272,7 @@ def scout_node(state: PipelineStateDict) -> dict:
             f"报告必须包含：市场概述、竞品分析、用户画像、赛道空白、技术趋势。"
         )
 
-        raw_content = _invoke_agent(agent, user_message)
+        raw_content = _invoke_agent(agent, user_message, callbacks=[handler] if handler else None)
 
         # 检查报告是否已由 write_report 写入
         if not os.path.exists(scout_report_path):
@@ -241,12 +294,28 @@ def scout_node(state: PipelineStateDict) -> dict:
         entry["status"] = "failed"
         entry["error"] = str(e)
 
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "scout",
+            "event": "agent_end",
+            "status": entry["status"],
+            "duration_s": int(time.time() - t0),
+        })
+
     outputs["scout"] = entry
     return {"agent_outputs": outputs, "current_agent": "scout"}
 
 
 def designer_node(state: PipelineStateDict) -> dict:
     """Designer Agent — 需求分析 + 架构设计。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "designer"
+        handler._emit({"time": now_iso(), "agent": "designer", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     context_dir = state["context_dir"]
 
@@ -291,7 +360,7 @@ def designer_node(state: PipelineStateDict) -> dict:
             f"3. 报告不少于 800 字，全部基于 Scout 报告数据。"
         )
 
-        raw_content = _invoke_agent(agent, user_message)
+        raw_content = _invoke_agent(agent, user_message, callbacks=[handler] if handler else None)
 
         entry["status"] = "completed"
         entry["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -309,12 +378,28 @@ def designer_node(state: PipelineStateDict) -> dict:
         entry["status"] = "failed"
         entry["error"] = str(e)
 
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "designer",
+            "event": "agent_end",
+            "status": entry["status"],
+            "duration_s": int(time.time() - t0),
+        })
+
     outputs["designer"] = entry
     return {"agent_outputs": outputs, "current_agent": "designer"}
 
 
 def builder_node(state: PipelineStateDict) -> dict:
     """Builder Agent — 代码实现。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "builder"
+        handler._emit({"time": now_iso(), "agent": "builder", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     context_dir = state["context_dir"]
 
@@ -373,7 +458,7 @@ def builder_node(state: PipelineStateDict) -> dict:
             + ("3. 根据修复指令修改代码，修复 Tester 发现的问题" if fix_content else "3. 确保代码语法正确，可以使用 run_command 检查")
         )
 
-        raw_content = _invoke_agent(agent, user_message)
+        raw_content = _invoke_agent(agent, user_message, callbacks=[handler] if handler else None)
 
         entry["status"] = "completed"
         entry["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -384,12 +469,28 @@ def builder_node(state: PipelineStateDict) -> dict:
         entry["status"] = "failed"
         entry["error"] = str(e)
 
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "builder",
+            "event": "agent_end",
+            "status": entry["status"],
+            "duration_s": int(time.time() - t0),
+        })
+
     outputs["builder"] = entry
     return {"agent_outputs": outputs, "current_agent": "builder"}
 
 
 def tester_node(state: PipelineStateDict) -> dict:
     """Tester Agent — 质量验证。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "tester"
+        handler._emit({"time": now_iso(), "agent": "tester", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     context_dir = state["context_dir"]
 
@@ -454,7 +555,7 @@ def tester_node(state: PipelineStateDict) -> dict:
             f"如果所有功能都符合设计，不写入修复指令文件。"
         )
 
-        raw_content = _invoke_agent(agent, user_message)
+        raw_content = _invoke_agent(agent, user_message, callbacks=[handler] if handler else None)
 
         entry["status"] = "completed"
         entry["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -476,12 +577,28 @@ def tester_node(state: PipelineStateDict) -> dict:
         entry["status"] = "failed"
         entry["error"] = str(e)
 
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "tester",
+            "event": "agent_end",
+            "status": entry["status"],
+            "duration_s": int(time.time() - t0),
+        })
+
     outputs["tester"] = entry
     return {"agent_outputs": outputs, "current_agent": "tester"}
 
 
 def seller_node(state: PipelineStateDict) -> dict:
     """Seller Agent — 发布准备。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "seller"
+        handler._emit({"time": now_iso(), "agent": "seller", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
     context_dir = state["context_dir"]
 
@@ -533,7 +650,7 @@ def seller_node(state: PipelineStateDict) -> dict:
             f"3. README 使用中文"
         )
 
-        raw_content = _invoke_agent(agent, user_message)
+        raw_content = _invoke_agent(agent, user_message, callbacks=[handler] if handler else None)
 
         entry["status"] = "completed"
         entry["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -549,12 +666,28 @@ def seller_node(state: PipelineStateDict) -> dict:
         entry["status"] = "failed"
         entry["error"] = str(e)
 
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "seller",
+            "event": "agent_end",
+            "status": entry["status"],
+            "duration_s": int(time.time() - t0),
+        })
+
     outputs["seller"] = entry
     return {"agent_outputs": outputs, "current_agent": "seller"}
 
 
 def finalize_node(state: PipelineStateDict) -> dict:
     """收尾节点 — 更新最终状态 + 持久化。"""
+    handler = _get_handler()
+    t0 = time.time()
+
+    if handler:
+        handler.current_agent = "finalize"
+        handler._emit({"time": now_iso(), "agent": "finalize", "event": "agent_start"})
+
     now = datetime.now(timezone.utc)
 
     # 判定最终状态
@@ -583,6 +716,14 @@ def finalize_node(state: PipelineStateDict) -> dict:
     iteration = state.get("iteration_count", 0)
     if iteration > 0:
         updates["warnings"] = [f"Builder-Tester 回退了 {iteration} 次"]
+
+    if handler:
+        handler._emit({
+            "time": now_iso(),
+            "agent": "finalize",
+            "event": "agent_end",
+            "duration_s": int(time.time() - t0),
+        })
 
     return updates
 

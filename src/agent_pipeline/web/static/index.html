@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Pipeline — Web UI</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- ====== Header ====== -->
+    <header class="header">
+      <div class="header-left">
+        <div class="header-logo">
+          ◈ <span>Agent</span> Pipeline
+        </div>
+        <span class="live-indicator">
+          <span class="live-dot" id="live-dot"></span>
+          LIVE
+        </span>
+      </div>
+      <button class="eclipse-btn" id="eclipse-btn" disabled title="Eclipse 熄灯 — 停止并释放端口">
+        ◉ Eclipse
+      </button>
+    </header>
+
+    <!-- ====== Status Banner ====== -->
+    <div class="status-banner" id="status-banner"></div>
+
+    <!-- ====== Input Section ====== -->
+    <section class="input-section">
+      <textarea
+        id="requirement-input"
+        placeholder="输入产品需求或问题描述，例如：设计一个 CLI TODO 应用&#10;然后按 ▶ 启动 或按 Enter 键（Shift+Enter 换行）"
+        rows="3"
+      ></textarea>
+      <div class="input-actions">
+        <button class="btn btn-primary" id="start-btn">▶ 启动</button>
+        <button class="btn btn-secondary" id="example-btn">📋 示例</button>
+      </div>
+    </section>
+
+    <!-- ====== Pipeline Board ====== -->
+    <section class="pipeline-board" id="pipeline-board">
+      <div class="agent-card pending" id="agent-scout">
+        <div class="agent-icon">🔍</div>
+        <div class="agent-name">Scout</div>
+        <div class="agent-role">市场调研</div>
+        <div class="agent-status">⏳ 等待中</div>
+        <div class="agent-duration"></div>
+      </div>
+      <div class="agent-card pending" id="agent-designer">
+        <div class="agent-icon">🎨</div>
+        <div class="agent-name">Designer</div>
+        <div class="agent-role">产品设计</div>
+        <div class="agent-status">⏳ 等待中</div>
+        <div class="agent-duration"></div>
+      </div>
+      <div class="agent-card pending" id="agent-builder">
+        <div class="agent-icon">⚙️</div>
+        <div class="agent-name">Builder</div>
+        <div class="agent-role">编码实现</div>
+        <div class="agent-status">⏳ 等待中</div>
+        <div class="agent-duration"></div>
+      </div>
+      <div class="agent-card pending" id="agent-tester">
+        <div class="agent-icon">🧪</div>
+        <div class="agent-name">Tester</div>
+        <div class="agent-role">质量验证</div>
+        <div class="agent-status">⏳ 等待中</div>
+        <div class="agent-duration"></div>
+      </div>
+      <div class="agent-card pending" id="agent-seller">
+        <div class="agent-icon">📦</div>
+        <div class="agent-name">Seller</div>
+        <div class="agent-role">发布准备</div>
+        <div class="agent-status">⏳ 等待中</div>
+        <div class="agent-duration"></div>
+      </div>
+    </section>
+
+    <!-- ====== Progress Bar ====== -->
+    <div class="progress-container">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-label">
+        <span>流水线进度</span>
+        <span class="progress-text" id="progress-text">0/5 Agent</span>
+      </div>
+    </div>
+
+    <!-- ====== Log Section ====== -->
+    <section class="log-section">
+      <div class="log-header">
+        <h3>📋 实时日志</h3>
+        <span class="log-count" id="log-count">0 条</span>
+      </div>
+      <div class="log-container" id="log-container">
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          <div class="empty-text">输入需求后点击 ▶ 启动，实时日志将出现在这里</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====== Artifacts Section ====== -->
+    <section class="artifacts-section" id="artifacts-section">
+      <div class="artifacts-header">
+        <h3>📄 产出物</h3>
+      </div>
+      <div class="artifacts-list" id="artifacts-list"></div>
+    </section>
+
+    <!-- ====== Help Section ====== -->
+    <section class="help-section">
+      <div class="help-header" id="help-toggle">
+        <h3>❓ 帮助</h3>
+        <span class="help-toggle">▼ 展开</span>
+      </div>
+      <div class="help-content hidden" id="help-content">
+        <h4>快速开始</h4>
+        <ol>
+          <li>在输入框中描述你的产品需求</li>
+          <li>点击 <strong>▶ 启动</strong> 或按 <code>Enter</code> 键开始</li>
+          <li>观察五 Agent 依次执行（Scout → Designer → Builder → Tester → Seller）</li>
+          <li>流水线完成后查看产出物列表</li>
+        </ol>
+
+        <h4>事件图例</h4>
+        <ul>
+          <li><code>▶ 开始工作</code> — Agent 开始执行</li>
+          <li><code>✓ 完成</code> — Agent 执行完成（绿色 = 成功，红色 = 失败）</li>
+          <li><code>→ tool</code> — 工具调用</li>
+          <li><code>← tool</code> — 工具返回</li>
+          <li><code>🤖 LLM 调用</code> — 大模型推理</li>
+          <li><code>🏁 流水线结束</code> — 全部流程完成</li>
+        </ul>
+
+        <h4>FAQ</h4>
+        <ul>
+          <li><strong>需要什么环境？</strong><br>只需设置 <code>DEEPSEEK_API_KEY</code> 环境变量</li>
+          <li><strong>流水线中途能停止吗？</strong><br>点击右上角 <strong>◉ Eclipse</strong> 停止并释放端口</li>
+          <li><strong>产出物在哪里？</strong><br>命令行运行目录的 <code>output/</code> 下</li>
+          <li><strong>如何查看历史流水线？</strong><br>命令行运行 <code>agent-pipeline list</code></li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ====== Eclipse Overlay ====== -->
+  <div class="eclipse-overlay" id="eclipse-overlay">
+    <div class="eclipse-text">SERVER ECLIPSED</div>
+    <div class="eclipse-sub">所有线程已终止 · 端口已释放</div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

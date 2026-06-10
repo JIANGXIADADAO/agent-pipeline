@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd ${CLAUDE_PROJECT_DIR} && TAG='[auto]'; PATH='${CLAUDE_FILE_PATH}'; case \"$PATH\" in *wiki/*|*CLAUDE.md|*TASKS.md|*inboxes/*|*agents/*) TAG='[wiki]' ;; *scout/*) TAG='[scout]' ;; *designer/*) TAG='[designer]' ;; *builder/*) TAG='[builder]' ;; *tester/*) TAG='[tester]' ;; *seller/*) TAG='[seller]' ;; esac && git add -A && git commit -m \"${TAG} ${CLAUDE_FILE_PATH##*/}\" -m \"$(git diff --cached --stat | head -15)\" && git push origin main"
+          }
+        ]
+      }
+    ]
+  }
+}

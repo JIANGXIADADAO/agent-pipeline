@@ -482,5 +482,40 @@ def list(limit: int):
     click.echo()
 
 
+@cli.command()
+@click.option("--port", default=3456, help="Web 服务端口")
+@click.option("--no-open", is_flag=True, help="不自动打开浏览器")
+def serve(port: int, no_open: bool):
+    """启动 Web 服务（FastAPI + SSE + Eclipse 熄灯）。
+
+    打开浏览器访问 Web UI，支持实时查看流水线执行进度。
+
+    示例:
+
+        agent-pipeline serve
+
+        agent-pipeline serve --port 8080 --no-open
+    """
+    import webbrowser
+
+    if not no_open:
+        webbrowser.open(f"http://localhost:{port}")
+
+    click.echo(
+        click.style("🌐 Agent Pipeline Web 服务已启动 ", fg="green", bold=True)
+        + click.style(f"(http://localhost:{port})", bold=True)
+    )
+    click.echo("按 Ctrl+C 停止服务")
+
+    import uvicorn
+
+    uvicorn.run(
+        "agent_pipeline.web.server:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+    )
+
+
 if __name__ == "__main__":
     cli()
