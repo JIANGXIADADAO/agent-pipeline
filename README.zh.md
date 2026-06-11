@@ -151,7 +151,7 @@ agent-pipeline serve
 5. **产出物** — 点击即可下载每个输出文件
 6. **◉ Eclipse 按钮** — 一键优雅关闭服务器
 
-![流水线全部完成](docs/screenshots/pipeline-success.png)
+![流水线全部完成](docs/screenshots/pipeline-builder-failed.png)
 
 > *五个 Agent 全部完成 — Scout(62s) → Designer(103s) → Builder(97s) → Tester(126s) → Seller(71s)*
 
@@ -319,7 +319,7 @@ Windows、macOS、Linux 都支持。Windows 用户使用 Web UI 时推荐 WSL，
 **Agent 失败了怎么办？**
 流水线会清晰显示失败原因的错误卡片，你也可以查看 pipeline.log 获取详细日志。常见失败包括 API 超时、Builder 未调用 write_code 工具——错误信息都会明确指出问题所在。
 
-![Builder 执行失败](docs/screenshots/pipeline-builder-failed.png)
+![Builder 执行失败](docs/screenshots/pipeline-success.png)
 
 > *Builder 失败——错误信息清楚指出："Agent 没有调用 write_code 工具。"*
 
