@@ -144,6 +144,10 @@ Open **http://localhost:3456** in your browser. You'll see:
 5. **Artifacts** — click to download each output file
 6. **◉ Eclipse** — gracefully shutdown the server
 
+![Pipeline completed successfully](docs/screenshots/pipeline-success.png)
+
+> *All five agents completed — Scout (62s) → Designer (103s) → Builder (97s) → Tester (126s) → Seller (71s)*
+
 ---
 
 ## Commands
@@ -303,6 +307,13 @@ Sign up at [platform.deepseek.com](https://platform.deepseek.com) — it's free 
 
 **What operating systems are supported?**
 Windows, macOS, and Linux. Windows users are recommended to use WSL for the Web UI, but the CLI works natively.
+
+**What if an agent fails?**
+The pipeline shows a clear error card with the failure reason, and you can check the pipeline log for details. Common failures include API timeouts or the Builder not calling `write_code` correctly — both are surfaced with specific error messages.
+
+![Builder agent failed](docs/screenshots/pipeline-builder-failed.png)
+
+> *Builder failed — the error message tells you exactly what went wrong: "Agent did not call write_code tool."*
 
 **What if the pipeline breaks midway?**
 Use `agent-pipeline run --resume` to resume from the last saved checkpoint. The pipeline saves `state.json` after every agent completes.
