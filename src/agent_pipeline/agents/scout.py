@@ -7,7 +7,7 @@
 - 反模式：无源判断、模糊描述、一次搜索就写报告
 """
 
-import os
+import os, re
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -87,6 +87,8 @@ def _make_write_report(context_dir: str):
     def write_report(path: str, content: str) -> str:
         """写入报告到流水线产出目录。路径相对于输出目录，禁止目录逃逸。"""
         clean_path = path.replace("\\", "/").lstrip("/")
+        # 去重：Agent 可能传入 output/项目名/ 前缀，去掉避免嵌套
+        clean_path = re.sub(r'^output/[^/]+/', '', clean_path)
         if ".." in clean_path.split("/"):
             return "错误：路径不能包含 '..'。"
         full_path = os.path.join(context_dir, clean_path)
@@ -139,7 +141,7 @@ def _get_system_prompt(knowledge_context: str = "") -> str:
 1. search_web 搜索 2-3 组不同关键词，覆盖市场/竞品/技术方向
 2. 从搜索结果中选出有价值的 URL，用 read_url 逐一深度阅读
 3. 用 query_knowledge 查公司 wiki 里是否有相关已有研究
-4. 用 write_report 写入结构化报告（路径：`scout->designer--调研报告.md`）
+4. 用 write_report 写入结构化报告（路径：`scout→designer--调研报告.md`）
 
 ## 报告结构（五章，缺一章即不完整）
 ```

@@ -8,7 +8,7 @@
 - Scout 赛道空白 = 营销弹药
 """
 
-import os
+import os, re
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -35,6 +35,8 @@ def _make_write_report(context_dir: str):
     def write_report(path: str, content: str) -> str:
         """写入文档到流水线产出目录。"""
         clean_path = path.replace("\\", "/").lstrip("/")
+        # 去重：Agent 可能传入 output/项目名/ 前缀，去掉避免嵌套
+        clean_path = re.sub(r'^output/[^/]+/', '', clean_path)
         if ".." in clean_path.split("/"):
             return "错误：路径不能包含 '..'。"
         full_path = os.path.join(context_dir, clean_path)
@@ -83,7 +85,7 @@ def _get_system_prompt() -> str:
 
 ## 产出物
 
-### seller->user--README.md
+### seller→user--README.md
 ```markdown
 # {项目名}
 
@@ -123,7 +125,7 @@ def _get_system_prompt() -> str:
 1. read_file 读取所有上游产出：Scout 报告（找赛道空白）、Designer 设计（找产品定位）、Builder 偏差记录（找已知限制）、Tester 测试报告（找使用示例）
 2. 综合理解：这个产品解决什么问题、怎么用、谁会用
 3. 用 query_knowledge 查公司 wiki 里的产品文档规范
-4. write_report 写入 seller->user--README.md
+4. write_report 写入 seller→user--README.md
 """
     return prompt
 

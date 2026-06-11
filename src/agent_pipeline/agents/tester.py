@@ -4,10 +4,10 @@
 - 不看代码写测试 -- 测试验证文档声明，不是逆向工程
 - 二值判定 -- Pass 或 Fail，不存在 "probably works"
 - 文档没说的不测 -- 沉默即不存在，不编造预期
-- 溯源链：designer->builder.md §T1.1 -> test-plan.md -> test code
+- 溯源链：designer→builder.md §T1.1 -> test-plan.md -> test code
 """
 
-import os
+import os, re
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -50,6 +50,8 @@ def _make_write_report(context_dir: str):
     def write_report(path: str, content: str) -> str:
         """写入测试报告或修复指令到流水线产出目录。"""
         clean_path = path.replace("\\", "/").lstrip("/")
+        # 去重：Agent 可能传入 output/项目名/ 前缀，去掉避免嵌套
+        clean_path = re.sub(r'^output/[^/]+/', '', clean_path)
         if ".." in clean_path.split("/"):
             return "错误：路径不能包含 '..'。"
         full_path = os.path.join(context_dir, clean_path)
@@ -96,7 +98,7 @@ def _get_system_prompt() -> str:
 
 ## 产出物
 
-### 1. tester->seller--测试报告.md（必须写入）
+### 1. tester→seller--测试报告.md（必须写入）
 ```markdown
 # 测试报告
 
@@ -110,7 +112,7 @@ def _get_system_prompt() -> str:
 通过: N | 失败: N | 不判定: N
 ```
 
-### 2. tester->builder--修复指令.md（仅当有 Fail 时写入）
+### 2. tester→builder--修复指令.md（仅当有 Fail 时写入）
 ```markdown
 # 修复指令
 
@@ -126,8 +128,8 @@ def _get_system_prompt() -> str:
 1. read_file 读取 Designer 需求分析 + 架构设计 → 提取"应该做成什么样"的检查清单
 2. run_command 浏览 builder→tester--src/ 目录 → 获取代码文件列表
 3. read_file 逐个读取代码文件 → 对照检查清单逐条判定
-4. write_report 写入 tester->seller--测试报告.md
-5. 如果有 Fail → write_report 写入 tester->builder--修复指令.md
+4. write_report 写入 tester→seller--测试报告.md
+5. 如果有 Fail → write_report 写入 tester→builder--修复指令.md
 6. 如果没有 Fail → 不创建修复指令文件（这是 Tester→Seller 路由的信号）
 """
     return prompt

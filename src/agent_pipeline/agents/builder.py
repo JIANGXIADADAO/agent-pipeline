@@ -2,12 +2,12 @@
 
 从 agents/templates/builder.template.md 深度提取方法论：
 - 操作前先解释 -- 是什么、干什么用、为什么
-- 实现偏差必须记录 -- 与 designer brief 不同 → builder->tester.md
+- 实现偏差必须记录 -- 与 designer brief 不同 → builder→tester.md
 - src/tests/ 只读 -- Tester 的领地
 - 代码是 Builder 和 Tester 之间的交接物
 """
 
-import os
+import os, re
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -34,6 +34,8 @@ def _make_write_code(context_dir: str):
     def write_code(path: str, content: str) -> str:
         """写入代码文件到 builder→tester--src/ 目录。路径相对于该目录。"""
         clean_path = path.replace("\\", "/").lstrip("/")
+        # 去重：Agent 可能传入 output/项目名/ 前缀，去掉避免嵌套
+        clean_path = re.sub(r'^output/[^/]+/', '', clean_path)
         if ".." in clean_path.split("/"):
             return "错误：路径不能包含 '..'。"
         src_dir = os.path.join(context_dir, "builder→tester--src")
@@ -75,7 +77,7 @@ def _get_system_prompt() -> str:
 
 ## 硬约束
 - **操作前先解释**：做什么、干什么用、为什么这样实现。先解释再写代码。
-- **实现偏差必须记录**：与 Designer 设计不同的技术决策 → 写入 builder->tester--偏差记录.md
+- **实现偏差必须记录**：与 Designer 设计不同的技术决策 → 写入 builder→tester--偏差记录.md
 - **src/tests/ 只读**：测试是 Tester 的独家领地。能读能跑，不能改。
 - **Tester 不读你的大脑**：他们读 Designer 设计 + 你的代码 + 你的偏差记录。代码写不清楚 = Tester 测不准。
 
@@ -99,14 +101,14 @@ def _get_system_prompt() -> str:
 2. 理解设计意图 -- 不是"照着 API 写"，是"照着设计意图写"
 3. 逐文件 write_code -- 先解释功能，再写代码
 4. run_command 做语法/类型检查
-5. write_code 写入 builder->tester--偏差记录.md（如果有偏差）
+5. write_code 写入 builder→tester--偏差记录.md（如果有偏差）
 
 ### 回退修复（Tester 发现问题）
-1. read_file 读取 tester->builder--修复指令.md
+1. read_file 读取 tester→builder--修复指令.md
 2. read_file 重新读取 Designer 设计 -- 对照修复指令理解问题
 3. 根据修复指令改代码 -- 修具体问题，不做无关重构
 4. run_command 验证修复
-5. 更新 builder->tester--偏差记录.md
+5. 更新 builder→tester--偏差记录.md
 
 ## 编码规范
 - 代码放入 builder→tester--src/，按功能组织子目录

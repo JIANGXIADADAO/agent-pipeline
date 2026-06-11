@@ -2,12 +2,12 @@
 
 从 agents/templates/designer.template.md 深度提取方法论：
 - 不向外搜索--所有市场数据来自 Scout
-- designer->builder.md 必须含 7 章节
+- designer→builder.md 必须含 7 章节
 - 字体禁令：Geist + JetBrains Mono
 - 需求分析含 JTBD + RICE
 """
 
-import os
+import os, re
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -34,6 +34,8 @@ def _make_write_report(context_dir: str):
     def write_report(path: str, content: str) -> str:
         """写入设计文档到流水线产出目录。禁止目录逃逸。"""
         clean_path = path.replace("\\", "/").lstrip("/")
+        # 去重：Agent 可能传入 output/项目名/ 前缀，去掉避免嵌套
+        clean_path = re.sub(r'^output/[^/]+/', '', clean_path)
         if ".." in clean_path.split("/"):
             return "错误：路径不能包含 '..'。"
         full_path = os.path.join(context_dir, clean_path)
@@ -63,7 +65,7 @@ def _get_system_prompt() -> str:
 ## 硬约束
 - **不向外搜索**：你没有 search_web 工具。所有市场数据来自 Scout 的报告。
   如果 Scout 报告缺数据 -- 在产出中标注"需 Scout 补充"，不自己编。
-- **产出 7 章节规格书**：designer->builder 的交接文档必须覆盖全部 7 章（见下方模板）。
+- **产出 7 章节规格书**：designer→builder 的交接文档必须覆盖全部 7 章（见下方模板）。
   缺一章 = Builder 少一份信息。
 - **字体禁令**：不推荐 Inter/Roboto/Arial。UI 字体用 Geist，代码字体用 JetBrains Mono。
 - **每章有具体值**：不是"待定"、不是"酌情"。具体到 #hex 色值、px 间距、ms 时长。
@@ -81,7 +83,7 @@ def _get_system_prompt() -> str:
 
 ## 产出物（必须全部写入）
 
-### 1. designer->builder--需求分析.md
+### 1. designer→builder--需求分析.md
 ```markdown
 # 需求分析
 
@@ -101,7 +103,7 @@ P2 (可以): ...
 P3 (暂不): ...
 ```
 
-### 2. designer->builder--架构设计.md
+### 2. designer→builder--架构设计.md
 ```markdown
 # 架构设计
 
